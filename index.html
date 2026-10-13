@@ -1,0 +1,1421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Bank Statement Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a workbench. The statement page sits on a dark desk at left with highlighter marks over what was read; the ledger of rows sits at right; export settings close the run as a strip below. */
+:root{
+  --bg:#ECF0EE; --surface:#FFFFFF; --sunk:#DCE3DF; --desk:#33403B;
+  --ink:#14211C; --muted:#56675F; --line:#CFD8D3; --line-soft:#E4EAE7;
+  --accent:#0D6A58; --accent-ink:#FFFFFF; --accent-soft:#D3EBE4;
+  --mark:rgba(247,206,36,.45); --mark-strong:rgba(247,190,0,.78); --mark-edge:#B78900; --mark-faint:rgba(13,106,88,.10);
+  --in:#12733B; --out:#A92A20; --warn:#8A5D00; --warn-soft:#FAEDC9; --ok-soft:#DCF0E3;
+  --f-display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;
+  --f-body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0F1513; --surface:#17201C; --sunk:#0B100E; --desk:#070B0A;
+  --ink:#E2EBE7; --muted:#93A59D; --line:#2A3631; --line-soft:#1F2925;
+  --accent:#4CC3A6; --accent-ink:#04231B; --accent-soft:#143A31;
+  --mark:rgba(247,206,36,.42); --mark-strong:rgba(247,190,0,.75); --mark-edge:#E7BE3F; --mark-faint:rgba(76,195,166,.16);
+  --in:#62D394; --out:#FF8E84; --warn:#E8B64C; --warn-soft:#37290B; --ok-soft:#143022;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F1513; --surface:#17201C; --sunk:#0B100E; --desk:#070B0A;
+  --ink:#E2EBE7; --muted:#93A59D; --line:#2A3631; --line-soft:#1F2925;
+  --accent:#4CC3A6; --accent-ink:#04231B; --accent-soft:#143A31;
+  --mark:rgba(247,206,36,.42); --mark-strong:rgba(247,190,0,.75); --mark-edge:#E7BE3F; --mark-faint:rgba(76,195,166,.16);
+  --in:#62D394; --out:#FF8E84; --warn:#E8B64C; --warn-soft:#37290B; --ok-soft:#143022;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);padding-inline:16px;padding-block:18px 48px}
+.app{max-width:1380px;margin:0 auto;display:grid;gap:16px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h2{font-size:17px;font-weight:600}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num,.mono{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--f-mono);font-size:12.5px}
+.label{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px}
+.brand{display:flex;gap:12px;align-items:center;min-width:0}
+.brand svg{flex:none}
+.brand h1{font-size:24px;font-weight:700;line-height:1.1}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 14px;font-weight:600;font-size:14px;cursor:pointer;line-height:1.2;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.small{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.marker{background:var(--mark);border-color:var(--mark-edge);color:var(--ink)}
+
+/* steps */
+.steps{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
+.steps li{display:flex;align-items:center;gap:7px}
+.steps b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);font-size:11px;font-family:var(--f-display)}
+.steps li.done b{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps li.done{color:var(--ink)}
+
+/* file bar + summary */
+.filebar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.filebar strong{font-weight:600;overflow-wrap:anywhere}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:99px;background:var(--warn-soft);color:var(--warn)}
+.tag.claude{background:var(--accent-soft);color:var(--accent)}
+.stats{display:flex;flex-wrap:wrap;gap:6px 0;margin-left:auto}
+.stat{padding:0 14px;border-left:1px solid var(--line-soft);display:grid}
+.stat:first-child{border-left:0}
+.stat span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.stat b{font-family:var(--f-mono);font-weight:500;font-size:14px;font-variant-numeric:tabular-nums}
+.pos{color:var(--in)} .neg{color:var(--out)}
+.progress{flex-basis:100%;height:4px;background:var(--line-soft);border-radius:4px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.pw{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:4px}
+.pw input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);min-width:0;flex:1 1 200px;max-width:320px}
+.msg{font-size:13.5px;color:var(--muted)}
+.msg.err{color:var(--out)}
+
+/* mobile tabs */
+.tabs{display:none;background:var(--sunk);border-radius:10px;padding:4px;gap:4px}
+.tabs button{flex:1;border:0;background:transparent;border-radius:7px;padding:8px 6px;font-weight:600;font-size:14px;cursor:pointer;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+/* workbench */
+.work{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:16px;align-items:start}
+.pane{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);min-width:0;display:flex;flex-direction:column}
+.pane-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line-soft)}
+.pane-head .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.check{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--muted);cursor:pointer}
+.check input{accent-color:var(--accent);width:15px;height:15px}
+
+.thumbs{display:flex;gap:8px;overflow-x:auto;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
+.thumb{flex:none;border:2px solid transparent;border-radius:6px;background:var(--sunk);padding:0;cursor:pointer;width:58px;position:relative}
+.thumb img{display:block;width:100%;border-radius:4px}
+.thumb span{position:absolute;right:3px;bottom:3px;background:var(--surface);font-size:10.5px;font-weight:600;border-radius:4px;padding:0 4px}
+.thumb[aria-current="true"]{border-color:var(--accent)}
+
+.stage{background:var(--desk);padding:18px;max-height:min(74vh,920px);overflow:auto;position:relative}
+.sheet{position:relative;margin:0 auto;max-width:760px;box-shadow:0 10px 30px rgba(0,0,0,.35);background:#fff}
+.sheet img{display:block;width:100%;height:auto}
+.overlay{position:absolute;inset:0}
+.box{position:absolute;border-radius:2px;cursor:pointer}
+.box.tx{background:var(--mark);mix-blend-mode:multiply}
+.box.cont{background:var(--mark);opacity:.55;mix-blend-mode:multiply}
+.box.other{outline:1px dashed rgba(13,106,88,.55);background:var(--mark-faint);cursor:default}
+.box.header{outline:1px solid rgba(13,106,88,.65);cursor:default}
+.box.balance{outline:1px solid rgba(13,106,88,.65);background:var(--mark-faint);cursor:default}
+.box.sel{background:var(--mark-strong);outline:2px solid var(--mark-edge);opacity:1}
+.box.hov{outline:2px solid var(--mark-edge)}
+.scan-note{position:absolute;left:50%;top:22px;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;max-width:min(90%,420px);box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.empty-stage{color:#c9d4cf;text-align:center;padding:60px 10px;font-size:14px}
+
+.picked{padding:12px 14px;border-top:1px solid var(--line-soft);display:grid;gap:8px}
+.picked .row1{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.picked .d{font-weight:600}
+.picked .amt{font-family:var(--f-mono);font-size:15px;font-weight:500}
+.picked .raw{background:var(--bg);border-radius:6px;padding:6px 8px;overflow-x:auto;white-space:pre;color:var(--muted)}
+.pane-foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--line-soft);font-size:13px;color:var(--muted)}
+
+/* table */
+.seg{display:inline-flex;background:var(--sunk);border-radius:8px;padding:3px}
+.seg button{border:0;background:transparent;padding:5px 12px;border-radius:6px;font-weight:600;font-size:13px;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line-soft);font-size:13px}
+.toolbar select{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:5px 8px;font-size:13px}
+.tablewrap{overflow:auto;max-height:min(74vh,980px)}
+table.tx{width:100%;border-collapse:collapse;font-size:13.5px;min-width:620px}
+table.tx th{position:sticky;top:0;background:var(--surface);z-index:1;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px 6px;border-bottom:1px solid var(--line)}
+table.tx th.num{text-align:right}
+table.tx td{padding:2px 4px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+table.tx tr.r:hover td{background:var(--line-soft)}
+table.tx tr.r.sel td{background:var(--mark)}
+table.tx tr.r.off td{opacity:.45}
+table.tx tr.pg td{background:var(--bg);font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;letter-spacing:.02em}
+.cell{width:100%;border:1px solid transparent;background:transparent;border-radius:5px;padding:5px 6px;font-size:13.5px;min-width:0}
+.cell:hover{border-color:var(--line)}
+.cell:focus{border-color:var(--accent);background:var(--surface);outline:none}
+.cell.num{text-align:right;font-family:var(--f-mono);font-size:12.5px}
+.c-inc{width:30px;text-align:center} .c-inc input{accent-color:var(--accent)}
+.c-date{width:112px} .c-amt{width:118px} .c-bal{width:118px} .c-chk{width:82px} .c-act{width:62px;white-space:nowrap}
+.ico{border:1px solid transparent;background:transparent;border-radius:5px;width:26px;height:26px;cursor:pointer;color:var(--muted);font-size:14px;line-height:1}
+.ico:hover{border-color:var(--line);color:var(--ink)}
+.chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--in)}
+.chip.off{background:var(--warn-soft);color:var(--warn)}
+.chip.na{color:var(--muted)}
+.empty-table{padding:40px 16px;text-align:center;color:var(--muted)}
+
+.raw-list{overflow:auto;max-height:min(74vh,980px);padding:6px 0}
+.raw-pg{padding:10px 14px 4px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.raw-line{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:10px;align-items:center;padding:4px 14px;border-bottom:1px solid var(--line-soft)}
+.raw-line .mono{white-space:pre;overflow-x:auto}
+.kind{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.kind.tx{color:var(--mark-edge)} .kind.cont{color:var(--mark-edge);opacity:.8} .kind.header,.kind.balance{color:var(--accent)}
+
+/* export */
+.export{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:16px}
+.export-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between}
+.export-head p{margin:0;color:var(--muted);font-size:13.5px}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px}
+fieldset{border:1px solid var(--line-soft);border-radius:9px;margin:0;padding:12px;display:grid;gap:6px;min-width:0;align-content:start}
+legend{padding:0 4px;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.choice{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+.choice:hover{background:var(--bg)}
+.choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.choice input{accent-color:var(--accent);margin-top:3px;flex:none}
+.choice b{display:block;font-weight:600;font-size:13.5px}
+.choice small{display:block;color:var(--muted);font-size:12.5px;line-height:1.35}
+.choice.disabled{opacity:.45;pointer-events:none}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px}
+.checks label{display:flex;gap:7px;align-items:center;font-size:13.5px;padding:4px 2px;cursor:pointer}
+.checks input{accent-color:var(--accent)}
+.field{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.field input{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:var(--bg);color:var(--ink);min-width:0}
+.preview{border:1px solid var(--line-soft);border-radius:9px;overflow:hidden;min-width:0}
+.sheettabs{display:flex;gap:2px;flex-wrap:wrap;background:var(--bg);padding:6px 8px 0;border-bottom:1px solid var(--line)}
+.sheettabs span{font-size:12px;padding:5px 10px;border-radius:6px 6px 0 0;color:var(--muted);border:1px solid transparent;border-bottom:0}
+.sheettabs span.first{background:var(--surface);color:var(--ink);border-color:var(--line);font-weight:600;margin-bottom:-1px}
+.xl{overflow-x:auto}
+.xl table{border-collapse:collapse;font-size:12.5px;width:100%}
+.xl th,.xl td{border:1px solid var(--line-soft);padding:4px 8px;white-space:nowrap}
+.xl th{background:var(--bg);font-weight:600;text-align:left}
+.xl td.n{text-align:right;font-family:var(--f-mono);font-size:12px}
+.xl tr.tot td{font-weight:600;border-top:2px solid var(--line)}
+.xl .rn{width:30px;color:var(--muted);text-align:center;background:var(--bg);font-size:11px}
+.xl .more td{color:var(--muted);font-style:italic}
+.go{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.copybox{width:100%;min-height:120px;font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg);color:var(--ink)}
+
+.dropping::after{content:"Drop the PDF to read it";position:fixed;inset:12px;border:3px dashed var(--accent);border-radius:16px;background:color-mix(in srgb,var(--bg) 88%,transparent);display:grid;place-items:center;font:600 22px var(--f-display);color:var(--accent);z-index:50;pointer-events:none}
+
+@media (max-width:979px){
+  .tabs{display:flex}
+  .work{grid-template-columns:minmax(0,1fr)}
+  .app[data-view="pages"] #paneRead,.app[data-view="pages"] #paneExport{display:none}
+  .app[data-view="read"] #panePages,.app[data-view="read"] #paneExport{display:none}
+  .app[data-view="export"] #panePages,.app[data-view="export"] #paneRead{display:none}
+  .stats{margin-left:0;width:100%}
+  .stat{padding:0 10px}
+  .stage{padding:10px;max-height:none}
+  .tablewrap,.raw-list{max-height:none}
+}
+@media (max-width:520px){
+  .stat:nth-child(n){border-left:0;padding:0 14px 0 0}
+  .raw-line{grid-template-columns:minmax(0,1fr) auto}
+  .raw-line .kind{grid-column:1/-1}
+  .checks{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+
+<div class="app" id="app" data-view="pages">
+  <header class="top">
+    <div class="brand">
+      <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
+        <rect x="3" y="2" width="30" height="40" rx="3" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/>
+        <rect x="8" y="10" width="20" height="2.4" rx="1" fill="var(--muted)"/>
+        <rect x="6.5" y="16" width="23" height="5" rx="1.5" fill="var(--mark-strong)"/>
+        <rect x="8" y="17.3" width="9" height="2.4" rx="1" fill="var(--ink)"/>
+        <rect x="21" y="17.3" width="7" height="2.4" rx="1" fill="var(--ink)"/>
+        <rect x="8" y="25" width="9" height="2.4" rx="1" fill="var(--muted)"/>
+        <rect x="21" y="25" width="7" height="2.4" rx="1" fill="var(--muted)"/>
+        <rect x="8" y="31" width="9" height="2.4" rx="1" fill="var(--muted)"/>
+        <rect x="21" y="31" width="7" height="2.4" rx="1" fill="var(--muted)"/>
+        <rect x="24" y="30" width="14" height="14" rx="2.5" fill="var(--accent)"/>
+        <path d="M28 34l6 6M34 34l-6 6" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>Bank Statement Scanner</h1>
+        <p>PDF statement in, Excel sheet out. Your PDF is read inside this page.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <label class="btn primary" for="file" tabindex="0" id="uploadLbl">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 11V2M4.5 5.5L8 2l3.5 3.5M2.5 10.5v3h11v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Upload statement PDF
+      </label>
+      <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      <button class="btn" id="sampleBtn" type="button">Load sample</button>
+    </div>
+  </header>
+
+  <ol class="steps" id="steps">
+    <li id="st1"><b>1</b>Upload a PDF</li>
+    <li id="st2"><b>2</b>Check what was read</li>
+    <li id="st3"><b>3</b>Choose the Excel layout and export</li>
+  </ol>
+
+  <section class="filebar" id="filebar" aria-live="polite">
+    <span class="tag" id="sampleTag" hidden>Sample statement</span>
+    <strong id="fileName">No statement loaded</strong>
+    <span class="msg" id="fileMeta"></span>
+    <div class="stats" id="stats"></div>
+    <div class="progress" id="progress" hidden><i></i></div>
+    <form class="pw" id="pwForm" hidden>
+      <span class="msg">This statement is locked. Enter the PDF password (banks often use your ID number).</span>
+      <input type="password" id="pwInput" autocomplete="off" aria-label="PDF password">
+      <button class="btn primary small" type="submit">Unlock</button>
+    </form>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" id="tabPages" data-view="pages" aria-selected="true">Pages</button>
+    <button role="tab" id="tabRead" data-view="read" aria-selected="false">What I read</button>
+    <button role="tab" id="tabExport" data-view="export" aria-selected="false">Export</button>
+  </nav>
+
+  <main class="work">
+    <section class="pane" id="panePages" aria-labelledby="hPages">
+      <div class="pane-head">
+        <h2 id="hPages">Pages</h2>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="showAll"> Outline all text found</label>
+        </div>
+      </div>
+      <div class="thumbs" id="thumbs" hidden></div>
+      <div class="stage" id="stage"><div class="empty-stage">Upload a statement to see its pages here.</div></div>
+      <div class="picked" id="picked" hidden></div>
+      <div class="pane-foot" id="pageFoot" hidden></div>
+    </section>
+
+    <section class="pane" id="paneRead" aria-labelledby="hRead">
+      <div class="pane-head">
+        <h2 id="hRead">What I read</h2>
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" id="segTx" aria-pressed="true">Transactions</button>
+          <button type="button" id="segRaw" aria-pressed="false">All text</button>
+        </div>
+      </div>
+      <div id="txView">
+        <div class="toolbar">
+          <label>Dates in this PDF are
+            <select id="dateOrder">
+              <option value="dmy">day first (31/01)</option>
+              <option value="mdy">month first (01/31)</option>
+            </select>
+          </label>
+          <button class="btn small" type="button" id="addRow">Add row</button>
+          <span class="msg" id="tableNote"></span>
+        </div>
+        <div class="tablewrap" id="tableWrap"></div>
+      </div>
+      <div id="rawView" hidden><div class="raw-list" id="rawList"></div></div>
+    </section>
+  </main>
+
+  <section class="export" id="paneExport" aria-labelledby="hExport">
+    <div class="export-head">
+      <h2 id="hExport">Export to Excel</h2>
+      <p>Pick how the sheet should look. The preview updates as you choose.</p>
+    </div>
+    <div class="opts">
+      <fieldset>
+        <legend>Sheets</legend>
+        <label class="choice"><input type="radio" name="layout" value="single" id="lay1"><span><b>One sheet</b><small>Every transaction in one list</small></span></label>
+        <label class="choice"><input type="radio" name="layout" value="month" id="lay2"><span><b>A sheet per month</b><small>Sep 2026, Oct 2026, …</small></span></label>
+        <label class="choice"><input type="radio" name="layout" value="page" id="lay3"><span><b>A sheet per PDF page</b><small>Mirrors the statement pages</small></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Amounts</legend>
+        <label class="choice"><input type="radio" name="amounts" value="signed" id="amt1"><span><b>One Amount column</b><small>Money out is negative, money in positive</small></span></label>
+        <label class="choice"><input type="radio" name="amounts" value="split" id="amt2"><span><b>Money in and Money out</b><small>Two columns, both positive numbers</small></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Dates</legend>
+        <label class="choice"><input type="radio" name="dates" value="dmy" id="dt1"><span><b>Excel dates, 31/01/2026</b><small>Real dates you can sort and filter</small></span></label>
+        <label class="choice"><input type="radio" name="dates" value="iso" id="dt2"><span><b>Excel dates, 2026-01-31</b><small>Real dates, ISO style</small></span></label>
+        <label class="choice"><input type="radio" name="dates" value="text" id="dt3"><span><b>Text, as printed</b><small>Exactly what the PDF shows</small></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Columns</legend>
+        <div class="checks">
+          <label><input type="checkbox" id="colDate"> Date</label>
+          <label><input type="checkbox" id="colDesc"> Description</label>
+          <label><input type="checkbox" id="colAmount"> Amount</label>
+          <label><input type="checkbox" id="colBalance"> Balance</label>
+          <label><input type="checkbox" id="colFee"> Fees</label>
+          <label><input type="checkbox" id="colPage"> PDF page</label>
+          <label><input type="checkbox" id="colCheck"> Balance check</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Extras</legend>
+        <div class="checks" style="grid-template-columns:1fr">
+          <label><input type="checkbox" id="optTotals"> Totals row with SUM formulas</label>
+          <label><input type="checkbox" id="optSummary"> Summary sheet, totals per month</label>
+          <label><input type="checkbox" id="optRaw"> Sheet with all text read from the PDF</label>
+          <label><input type="checkbox" id="optOldest"> Oldest transaction first</label>
+          <label><input type="checkbox" id="optSkipped"> Leave out unticked rows</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>File</legend>
+        <label class="choice"><input type="radio" name="format" value="xlsx" id="fmt1"><span><b>Excel workbook (.xlsx)</b><small>Keeps sheets, dates and formulas</small></span></label>
+        <label class="choice"><input type="radio" name="format" value="csv" id="fmt2"><span><b>CSV (.csv)</b><small>One plain table, opens anywhere</small></span></label>
+        <label class="field" for="fname">File name<input id="fname" type="text" spellcheck="false"></label>
+      </fieldset>
+    </div>
+    <div class="preview" id="preview"></div>
+    <div class="go">
+      <button class="btn primary" id="exportBtn" type="button" disabled>Download Excel file</button>
+      <button class="btn" id="copyBtn" type="button" disabled>Copy table for pasting into Excel</button>
+      <span class="msg" id="exportMsg"></span>
+    </div>
+    <textarea class="copybox" id="copyBox" hidden readonly aria-label="Table text to copy"></textarea>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script id="core">
+/* Parsing core: pure functions, no page access. */
+const Core = (() => {
+  const MONTHS_EN = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  const MONTHS_AF = ['januarie','februarie','maart','april','mei','junie','julie','augustus','september','oktober','november','desember'];
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let seq = 0;
+  const uid = p => p + (++seq);
+
+  function monNum(s){
+    s = String(s).toLowerCase().replace(/\.$/, '');
+    if (s.length < 3 || !/^[a-z]+$/.test(s)) return 0;
+    if (s === 'mrt') return 3;
+    for (let i = 0; i < 12; i++) if (MONTHS_EN[i].startsWith(s) || MONTHS_AF[i].startsWith(s)) return i + 1;
+    return 0;
+  }
+  const yr = s => s.length === 2 ? 2000 + (+s) : +s;
+  function mk(y, m, d, text){
+    if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
+    if (y != null && (y < 1990 || y > 2100)) return null;
+    return { y, m, d, text };
+  }
+  function parseDateStart(text, order){
+    const t = String(text).trim();
+    let m;
+    if ((m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)/))) return mk(+m[1], +m[2], +m[3], m[0]);
+    if ((m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?![\d.,])/))){
+      let a = +m[1], b = +m[2], d, mo;
+      if (order === 'mdy'){ mo = a; d = b; } else { d = a; mo = b; }
+      if (mo > 12 && d <= 12){ const x = d; d = mo; mo = x; }
+      return mk(yr(m[3]), mo, d, m[0]);
+    }
+    if ((m = t.match(/^(\d{1,2})(?:st|nd|rd|th)?[\s\-.]+([A-Za-z]{3,9})\.?(?:[\s\-.,]+(\d{4}|\d{2}))?(?![\w])/))){
+      const mo = monNum(m[2]); if (mo) return mk(m[3] ? yr(m[3]) : null, mo, +m[1], m[0]);
+    }
+    if ((m = t.match(/^(\d{1,2})(?:st|nd|rd|th)?[\s\-.]+([A-Za-z]{3,9})\.?(?![\w])/))){
+      const mo = monNum(m[2]); if (mo) return mk(null, mo, +m[1], m[0]);
+    }
+    if ((m = t.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?![\d.,])/))){
+      const mo = monNum(m[1]); if (mo) return mk(m[3] ? +m[3] : null, mo, +m[2], m[0]);
+    }
+    if ((m = t.match(/^(\d{1,2})\/(\d{1,2})(?![\d/])/))){
+      let a = +m[1], b = +m[2];
+      return order === 'mdy' ? mk(null, a, b, m[0]) : mk(null, b, a, m[0]);
+    }
+    return null;
+  }
+  function fullDatesIn(text, order){
+    const out = []; let m;
+    const r1 = /\b(\d{1,2})(?:st|nd|rd|th)?[\s\-]([A-Za-z]{3,9})\.?[\s\-,]+(\d{4})\b/g;
+    while ((m = r1.exec(text))){ const mo = monNum(m[2]); if (mo) out.push(mk(+m[3], mo, +m[1])); }
+    const r2 = /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/g;
+    while ((m = r2.exec(text))) out.push(mk(+m[1], +m[2], +m[3]));
+    const r3 = /\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b/g;
+    while ((m = r3.exec(text))){ const a = +m[1], b = +m[2]; out.push(order === 'mdy' ? mk(+m[3], a, b) : mk(+m[3], b, a)); }
+    const r4 = /\b([A-Za-z]{3,9})\.?\s(\d{1,2}),?\s(\d{4})\b/g;
+    while ((m = r4.exec(text))){ const mo = monNum(m[1]); if (mo) out.push(mk(+m[3], mo, +m[2])); }
+    return out.filter(Boolean);
+  }
+
+  function parseAmount(raw){
+    let t = String(raw).replace(/[   ]/g, ' ').replace(/[−–]/g, '-').trim();
+    if (!t || /[a-qs-z]/i.test(t.replace(/\b(cr|dr|zar|usd|eur|gbp)\b/ig, ''))) return null;
+    let sign = 0, hint = null, m;
+    if ((m = t.match(/^(.*?)\s*(cr|dr)\.?$/i))){ hint = m[2].toLowerCase(); sign = hint === 'cr' ? 1 : -1; t = m[1].trim(); }
+    if (/^\(.*\)$/.test(t)){ sign = -1; hint = hint || 'minus'; t = t.slice(1, -1).trim(); }
+    if (/-$/.test(t)){ sign = -1; hint = hint || 'minus'; t = t.slice(0, -1).trim(); }
+    if (/^[-+]/.test(t)){ if (t[0] === '-'){ sign = -1; hint = hint || 'minus'; } else { sign = 1; hint = hint || 'plus'; } t = t.slice(1).trim(); }
+    t = t.replace(/^(R|ZAR|USD|EUR|GBP|\$|€|£)\s?/i, '');
+    if (/^-/.test(t)){ sign = -1; hint = hint || 'minus'; t = t.slice(1).trim(); }
+    m = t.match(/^(\d{1,3}(?:[ ,.'’]\d{3})*|\d+)([.,])(\d{2})$/);
+    if (!m) return null;
+    const groups = m[1].replace(/\d/g, '');
+    if (groups.includes(m[2]) || new Set(groups).size > 1) return null;
+    return { value: Number(m[1].replace(/\D/g, '') + '.' + m[3]), sign, hint };
+  }
+
+  function buildLines(items){
+    const its = items.filter(i => i.str && i.str.trim()).slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    const lines = [];
+    for (const it of its){
+      let line = null;
+      for (let k = lines.length - 1; k >= Math.max(0, lines.length - 3); k--){
+        const l = lines[k];
+        if (Math.abs(l.y - it.y) < Math.max(2, Math.min(l.h, it.h) * 0.5)){ line = l; break; }
+      }
+      if (!line){ line = { y: it.y, h: it.h, items: [] }; lines.push(line); }
+      line.items.push(it); line.h = Math.max(line.h, it.h);
+    }
+    for (const l of lines){
+      l.items.sort((a, b) => a.x - b.x);
+      const segs = []; let cur = null;
+      for (const it of l.items){
+        const gap = cur ? it.x - (cur.x + cur.w) : Infinity;
+        if (cur && gap < it.h * 0.6){
+          const space = gap > it.h * 0.12 && !/\s$/.test(cur.text) && !/^\s/.test(it.str);
+          cur.text += (space ? ' ' : '') + it.str;
+          cur.w = Math.max(cur.w, it.x + it.w - cur.x);
+        } else { cur = { text: it.str, x: it.x, w: it.w }; segs.push(cur); }
+      }
+      l.segs = segs.map(s => ({ ...s, text: s.text.replace(/\s+/g, ' ').trim() })).filter(s => s.text);
+      // fold a lone Cr / Dr into the amount before it
+      const merged = [];
+      for (const s of l.segs){
+        const prev = merged[merged.length - 1];
+        if (prev && /^(cr|dr)\.?$/i.test(s.text) && parseAmount(prev.text)){ prev.text += ' ' + s.text; prev.w = s.x + s.w - prev.x; }
+        else merged.push(s);
+      }
+      l.segs = merged;
+      l.text = l.segs.map(s => s.text).join('   ');
+      l.x = l.segs.length ? l.segs[0].x : 0;
+      l.right = l.segs.reduce((m, s) => Math.max(m, s.x + s.w), 0);
+    }
+    return lines.filter(l => l.segs.length);
+  }
+
+  const HDR = [
+    { kind: 'debit', re: /^(debits?|debit amount|withdrawals?|money out|paid out|payments?|out|debit \(r\))$/ },
+    { kind: 'credit', re: /^(credits?|credit amount|deposits?|money in|paid in|receipts?|in|credit \(r\))$/ },
+    { kind: 'balance', re: /^(balance|running balance|balance \(r\)|available balance)$/ },
+    { kind: 'amount', re: /^(amount|amount \(r\)|transaction amount|value)$/ },
+    { kind: 'fee', re: /^(fees?|charges?|bank charges|service fees?|fee \(r\))$/ },
+  ];
+  const HDR_WORDS = /^(date|dates|transaction date|trans date|tran date|post date|posting date|value date|description|details|transaction details|transaction description|narrative|reference|particulars)$/;
+  function detectHeader(line){
+    const cols = []; let words = 0;
+    for (const s of line.segs){
+      const t = s.text.toLowerCase().replace(/[:*]/g, '').trim();
+      const hit = HDR.find(h => h.re.test(t));
+      if (hit) cols.push({ kind: hit.kind, cx: s.x + s.w / 2, right: s.x + s.w });
+      else if (HDR_WORDS.test(t)) words++;
+    }
+    return cols.length && cols.length + words >= 2 ? cols : null;
+  }
+
+  const OPEN_RE = /(opening balance|balance brought forward|brought forward|balance b\/?f\b|previous balance)/i;
+  const CLOSE_RE = /(closing balance|balance carried forward|carried forward|balance c\/?f\b)/i;
+
+  function lineBox(l){ return { x: l.x - 2, y: l.y - l.h * 0.9, w: l.right - l.x + 4, h: l.h * 1.25 }; }
+  function unionBox(a, b){
+    if (!a) return b; const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+    return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+  }
+
+  function rowFromAmounts(pageNum, ln, date, amts, desc, cols){
+    for (const a of amts){
+      a.kind = null;
+      if (cols){
+        let best = null, bd = Infinity;
+        for (const c of cols){ const d = Math.min(Math.abs(a.right - c.right), Math.abs(a.cx - c.cx)); if (d < bd){ bd = d; best = c; } }
+        if (best && bd < 70) a.kind = best.kind;
+      }
+    }
+    let debit = null, credit = null, amount = null, balance = null, fee = null;
+    const free = [];
+    for (const a of amts){
+      if (a.kind === 'balance' && !balance) balance = a;
+      else if (a.kind === 'debit' && !debit) debit = a;
+      else if (a.kind === 'credit' && !credit) credit = a;
+      else if (a.kind === 'fee' && !fee) fee = a;
+      else if (a.kind === 'amount' && !amount) amount = a;
+      else free.push(a);
+    }
+    if (free.length){
+      if (!balance && !debit && !credit && !amount && !fee){
+        const n = free.length;
+        if (n === 1) amount = free[0];
+        else { balance = free[n - 1]; amount = free[n - 2]; if (n >= 3) fee = free[n - 3]; }
+      } else {
+        for (const a of free){
+          if (!amount && !debit && !credit) amount = a;
+          else if (!balance) balance = a;
+          else if (!fee) fee = a;
+        }
+      }
+    }
+    let value = 0, signKnown = false, hint = null;
+    if (debit && credit){ value = credit.value - debit.value; signKnown = true; }
+    else if (debit){ value = -debit.value; signKnown = true; }
+    else if (credit){ value = credit.value; signKnown = true; }
+    else if (amount){ value = amount.sign ? amount.sign * amount.value : amount.value; signKnown = !!amount.sign; hint = amount.hint; }
+    else if (fee){ value = -fee.value; signKnown = true; fee = null; }
+    return {
+      id: uid('R'), page: pageNum, lineIds: [ln.id], box: lineBox(ln),
+      y: date ? date.y : null, m: date ? date.m : null, d: date ? date.d : null, dateText: date ? date.text : '',
+      desc, amount: value, signKnown, signGuess: false, hint,
+      balance: balance ? (balance.sign === -1 ? -balance.value : balance.value) : null,
+      fee: fee ? -fee.value : null,
+      include: true, source: 'text', check: 'na'
+    };
+  }
+
+  function parseDocument(pages, order){
+    const rows = []; let cols = null, opening = null, closing = null;
+    const full = [];
+    let crCount = 0, drCount = 0;
+    for (const p of pages){
+      p.lines = buildLines(p.items);
+      let last = null;
+      for (const ln of p.lines){
+        ln.id = uid('L'); ln.kind = 'other'; ln.rowId = null; ln.page = p.num;
+        full.push(ln.text);
+        if (last && ln.y - last.lastY > last.h * 3.4) last = null;
+        const hdr = detectHeader(ln);
+        if (hdr){ cols = hdr; ln.kind = 'header'; last = null; continue; }
+        const segs = ln.segs;
+        const date = parseDateStart(segs[0].text, order);
+        const amts = [], texts = [];
+        segs.forEach((s, i) => {
+          const a = (i === 0 && date) ? null : parseAmount(s.text);
+          if (a) amts.push({ ...a, cx: s.x + s.w / 2, right: s.x + s.w });
+          else texts.push({ s, i });
+        });
+        if (OPEN_RE.test(ln.text)){ if (amts.length && opening == null){ const a = amts[amts.length - 1]; opening = a.sign === -1 ? -a.value : a.value; } ln.kind = 'balance'; last = null; continue; }
+        if (CLOSE_RE.test(ln.text)){ if (amts.length){ const a = amts[amts.length - 1]; closing = a.sign === -1 ? -a.value : a.value; } ln.kind = 'balance'; last = null; continue; }
+        let descX = null;
+        let desc = texts.map(({ s, i }) => {
+          const txt = (i === 0 && date) ? s.text.slice(date.text.length).trim() : s.text;
+          if (txt && descX == null) descX = (i === 0 && date) ? s.x + s.w * (date.text.length / Math.max(1, s.text.length)) : s.x;
+          return txt;
+        }).filter(Boolean).join(' ');
+        if (date){ const d2 = parseDateStart(desc, order); if (d2 && desc.length > d2.text.length) desc = desc.slice(d2.text.length).trim(); }
+        const carried = !date && amts.length && desc && last && last.descX != null && descX != null && Math.abs(descX - last.descX) < 10;
+        if ((date && amts.length) || carried){
+          const row = rowFromAmounts(p.num, ln, date || { y: last.row.y, m: last.row.m, d: last.row.d, text: '' }, amts, desc, cols);
+          if (!date) row.dateText = last.row.dateText;
+          if (row.hint === 'cr') crCount++; if (row.hint === 'dr') drCount++;
+          rows.push(row); ln.kind = 'tx'; ln.rowId = row.id;
+          last = { row, lastY: ln.y, h: ln.h, descX: descX ?? ln.x, conts: 0 };
+          continue;
+        }
+        if (last && !amts.length && !date && ln.y - last.lastY < last.h * 2.6 && last.conts < 2 && ln.x >= last.descX - 8 && ln.text.length < 90 && !/^page\s+\d/i.test(ln.text)){
+          last.row.desc = (last.row.desc + ' ' + ln.text.replace(/\s{2,}/g, ' ')).trim();
+          last.row.lineIds.push(ln.id); last.row.box = unionBox(last.row.box, lineBox(ln));
+          last.lastY = ln.y; last.conts++; ln.kind = 'cont'; ln.rowId = last.row.id;
+          continue;
+        }
+      }
+    }
+    // fill in missing years from the latest full date printed anywhere
+    const dates = fullDatesIn(full.join('\n'), order);
+    let ref = null;
+    for (const d of dates){ if (!ref || d.y * 400 + d.m * 32 + d.d > ref.y * 400 + ref.m * 32 + ref.d) ref = d; }
+    const now = new Date();
+    const refY = ref ? ref.y : now.getFullYear(), refM = ref ? ref.m : 12;
+    for (const r of rows) if (r.m && r.y == null) r.y = r.m > refM ? refY - 1 : refY;
+    const usesCr = crCount > 0 && drCount === 0;
+    const orientation = inferSigns(rows, opening, usesCr);
+    computeChecks(rows, orientation, opening);
+    return { rows, opening, closing, orientation, refYear: refY, usesCr };
+  }
+
+  function pairs(rows, dir, opening){
+    const seq = dir === 'fwd' ? rows : rows.slice().reverse();
+    const out = []; let prev = opening;
+    for (const r of seq){
+      if (r.balance == null){ prev = null; continue; }
+      if (prev != null) out.push([r, Math.round((r.balance - prev) * 100) / 100]);
+      prev = r.balance;
+    }
+    return out;
+  }
+  function matchSign(diff, amt, fee){
+    const a = Math.abs(amt), f = fee || 0;
+    if (Math.abs(diff - (-a + f)) < 0.015) return -1;
+    if (Math.abs(diff - (a + f)) < 0.015) return 1;
+    return 0;
+  }
+  function inferSigns(rows, opening, usesCr){
+    const score = dir => pairs(rows, dir, opening).filter(([r, d]) => matchSign(d, r.amount, r.fee)).length;
+    const orientation = score('bwd') > score('fwd') ? 'bwd' : 'fwd';
+    for (const [r, d] of pairs(rows, orientation, opening)){
+      const s = matchSign(d, r.amount, r.fee);
+      if (s){ r.amount = s * Math.abs(r.amount); r.signKnown = true; }
+    }
+    for (const r of rows){
+      if (r.signKnown) continue;
+      if (usesCr){ r.amount = r.hint === 'cr' ? Math.abs(r.amount) : -Math.abs(r.amount); r.signKnown = true; }
+      else r.signGuess = true;
+    }
+    return orientation;
+  }
+  function computeChecks(rows, orientation, opening){
+    for (const r of rows) r.check = 'na';
+    const live = rows.filter(r => r.include);
+    for (const [r, d] of pairs(live, orientation, opening)){
+      r.check = Math.abs(d - (r.amount + (r.fee || 0))) < 0.015 ? 'ok' : 'off';
+    }
+  }
+
+  /* A two-page sample statement, built as a real PDF so it runs through the same reader. */
+  function makeSamplePdf(){
+    const esc = s => s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    const cw = ch => /[0-9]/.test(ch) ? 556 : /[.,\s]/.test(ch) ? 278 : ch === '-' ? 333 : 556;
+    const width = (s, size) => [...s].reduce((a, c) => a + cw(c), 0) * size / 1000;
+    const T = (x, y, s, size = 9, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x.toFixed(2)} ${y} Td (${esc(s)}) Tj ET`;
+    const R = (xr, y, s, size = 9, bold = false) => T(xr - width(s, size), y, s, size, bold);
+    const rule = (y, g = 0.75) => `${g} G 0.6 w 40 ${y} m 555 ${y} l S`;
+    const fmt = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const tx = [
+      ['01 Sep', 'Salary - Lindiwe Design Studio', 0, 24500.00],
+      ['01 Sep', 'Debit order - Home loan', 8950.00, 0],
+      ['02 Sep', 'Debit order - Vehicle finance', 4215.60, 0],
+      ['03 Sep', 'POS purchase - Checkers Rosebank', 1284.37, 0],
+      ['03 Sep', 'Monthly account fee', 95.00, 0],
+      ['05 Sep', 'Prepaid electricity - City Power', 750.00, 0],
+      ['07 Sep', 'EFT received - J Mokoena rent share', 0, 3200.00],
+      ['09 Sep', 'POS purchase - Engen Garage', 812.50, 0],
+      ['11 Sep', 'Card purchase - Takealot.com', 1599.00, 0, 'Ref 88213045 online order'],
+      ['14 Sep', 'ATM withdrawal - Sandton City', 1000.00, 0],
+      ['15 Sep', 'Debit order - Vodacom contract', 649.00, 0],
+      ['18 Sep', 'POS purchase - Woolworths Food', 936.42, 0],
+      ['20 Sep', 'Debit order - Medical aid', 3890.00, 0],
+      ['22 Sep', 'Interest received', 0, 12.84],
+      ['24 Sep', 'EFT payment - Tuition October', 2500.00, 0, 'Ref TUITION-OCT-2026'],
+      ['26 Sep', 'POS purchase - Pick n Pay', 1148.95, 0],
+      ['28 Sep', 'Streaming subscription', 199.00, 0],
+      ['30 Sep', 'Transfer to savings account', 2000.00, 0],
+    ];
+    let bal = 8412.35;
+    const pagesOps = [[], []];
+    const cols = { date: 46, desc: 102, debit: 392, credit: 462, bal: 548 };
+    const head = (ops, y) => {
+      ops.push(T(cols.date, y, 'Date', 8.5, true), T(cols.desc, y, 'Description', 8.5, true), R(cols.debit, y, 'Debits', 8.5, true), R(cols.credit, y, 'Credits', 8.5, true), R(cols.bal, y, 'Balance', 8.5, true));
+      ops.push(rule(y - 6, 0.4));
+    };
+    let ops = pagesOps[0];
+    ops.push(T(40, 790, 'Karoo Mutual Bank', 17, true));
+    ops.push(T(40, 772, 'Everyday Cheque Account  -  Statement no. 9', 10));
+    ops.push(T(380, 790, 'SAMPLE STATEMENT', 10, true), T(380, 776, 'Not a real account', 9));
+    ops.push(T(40, 744, 'Account holder: Sample Customer', 9), T(40, 731, 'Account number: 0000 000 000', 9));
+    ops.push(T(330, 744, 'Statement period: 01 Sep 2026 to 30 Sep 2026', 9), T(330, 731, 'Statement date: 01 Oct 2026', 9));
+    ops.push(rule(716));
+    head(ops, 696);
+    let y = 674;
+    ops.push(T(cols.desc, y, 'Opening balance', 9, true), R(cols.bal, y, fmt(bal), 9, true));
+    y -= 20;
+    tx.forEach((t, i) => {
+      if (i === 12){
+        ops.push(rule(64), T(40, 48, 'Karoo Mutual Bank sample  |  Page 1 of 2', 7.5));
+        ops = pagesOps[1]; head(ops, 790); y = 768;
+      }
+      bal = Math.round((bal - t[2] + t[3]) * 100) / 100;
+      ops.push(T(cols.date, y, t[0]), T(cols.desc, y, t[1]));
+      if (t[2]) ops.push(R(cols.debit, y, fmt(t[2])));
+      if (t[3]) ops.push(R(cols.credit, y, fmt(t[3])));
+      ops.push(R(cols.bal, y, fmt(bal)));
+      if (t[4]){ y -= 12; ops.push(T(cols.desc, y, t[4], 7.5)); }
+      y -= 20;
+    });
+    ops.push(rule(y + 8, 0.4));
+    ops.push(T(cols.desc, y - 8, 'Closing balance', 9, true), R(cols.bal, y - 8, fmt(bal), 9, true));
+    ops.push(rule(64), T(40, 48, 'Karoo Mutual Bank sample  |  Page 2 of 2', 7.5));
+
+    const objs = [];
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    const kids = [];
+    pagesOps.forEach((o, i) => {
+      const pg = 5 + i * 2, ct = 6 + i * 2;
+      const stream = o.join('\n');
+      objs[ct] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+      objs[pg] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${ct} 0 R >>`;
+      kids.push(`${pg} 0 R`);
+    });
+    objs[2] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+    let out = '%PDF-1.4\n'; const offs = [];
+    for (let i = 1; i < objs.length; i++){ offs[i] = out.length; out += `${i} 0 obj\n${objs[i]}\nendobj\n`; }
+    const xref = out.length;
+    out += `xref\n0 ${objs.length}\n0000000000 65535 f \n`;
+    for (let i = 1; i < objs.length; i++) out += String(offs[i]).padStart(10, '0') + ' 00000 n \n';
+    out += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    const bytes = new Uint8Array(out.length);
+    for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 255;
+    return bytes;
+  }
+
+  return { parseDocument, parseAmount, parseDateStart, computeChecks, makeSamplePdf, uid, MON };
+})();
+if (typeof module !== 'undefined') module.exports = Core;
+</script>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const app = $('#app');
+  const MON = Core.MON;
+  const nf = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (v, plus = true) => v == null || isNaN(v) ? '' : (v < 0 ? '−' : (plus && v > 0 ? '+' : '')) + nf.format(Math.abs(v));
+  const pad = n => String(n).padStart(2, '0');
+  const fmtDate = r => r.m ? `${pad(r.d)} ${MON[r.m - 1]} ${r.y ?? ''}`.trim() : '';
+  const isoDate = r => r.m && r.y ? `${r.y}-${pad(r.m)}-${pad(r.d)}` : '';
+
+  const S = {
+    fileName: '', isSample: false, data: null, pages: [], rows: [], opening: null, closing: null,
+    orientation: 'fwd', refYear: new Date().getFullYear(),
+    selPage: 1, selRow: null, view: 'pages', readTab: 'tx', showAll: false, order: 'dmy', loading: false,
+    claudeBusy: null,
+    opts: { layout: 'single', amounts: 'signed', dates: 'dmy', format: 'xlsx', filename: 'bank-statement',
+      cols: { date: true, desc: true, amount: true, balance: true, fee: true, page: false, check: false },
+      totals: true, summary: true, raw: false, oldest: true, skipUnticked: true }
+  };
+
+  let downloads = null, sample = null;
+  if (window.claude && typeof window.claude.use === 'function'){
+    window.claude.use('downloads').then(d => { downloads = d; renderExport(); }).catch(() => {});
+    window.claude.use('sample').then(s => { sample = s; renderPageFoot(); }).catch(() => {});
+  } else {
+    // Opened as a normal web page: save files with a regular browser download.
+    downloads = { save: async ({ filename, data }) => {
+      const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return { status: 'saved' };
+    } };
+  }
+
+  /* ---------- loading ---------- */
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  function setMeta(text, err){ const m = $('#fileMeta'); m.textContent = text; m.classList.toggle('err', !!err); }
+  function setProgress(f){ const p = $('#progress'); if (f == null){ p.hidden = true; return; } p.hidden = false; p.firstElementChild.style.width = Math.round(f * 100) + '%'; }
+
+  async function loadPdf(bytes, name, isSample, password){
+    S.loading = true; S.data = bytes; S.fileName = name; S.isSample = isSample;
+    $('#fileName').textContent = name; $('#sampleTag').hidden = !isSample; $('#pwForm').hidden = true;
+    setMeta('Opening…'); setProgress(0.02);
+    for (const p of S.pages) URL.revokeObjectURL(p.url);
+    let pdf;
+    try {
+      pdf = await pdfjsLib.getDocument({ data: bytes.slice(), password, isEvalSupported: false }).promise;
+    } catch (e){
+      setProgress(null); S.loading = false;
+      if (e && e.name === 'PasswordException'){
+        $('#pwForm').hidden = false; setMeta(password ? 'That password did not open it. Try again.' : '', !!password);
+        $('#pwInput').value = ''; $('#pwInput').focus(); return;
+      }
+      setMeta('This file could not be opened as a PDF. Check that it is a statement PDF and not a photo or a web page.', true); return;
+    }
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++){
+      setMeta(`Reading page ${i} of ${pdf.numPages}…`);
+      const page = await pdf.getPage(i);
+      const vp1 = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.4, 1400 / vp1.width);
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+      const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+      const tc = await page.getTextContent();
+      const items = tc.items.filter(it => typeof it.str === 'string').map(it => {
+        const t = pdfjsLib.Util.transform(vp1.transform, it.transform);
+        const h = Math.hypot(t[2], t[3]) || Math.abs(it.transform[3]) || 8;
+        return { str: it.str, x: t[4], y: t[5], w: it.width || it.str.length * h * 0.5, h };
+      });
+      pages.push({ num: i, w: vp1.width, h: vp1.height, url: URL.createObjectURL(blob), blob, items, scanned: items.filter(x => x.str.trim()).length < 6, byClaude: false });
+      setProgress(i / pdf.numPages);
+    }
+    S.pages = pages; S.selPage = 1; S.selRow = null; S.loading = false;
+    const base = name.replace(/\.pdf$/i, '').replace(/[^\w\- ]+/g, '').trim() || 'bank-statement';
+    S.opts.filename = isSample ? 'sample-statement' : base;
+    reparse();
+    setProgress(null);
+  }
+
+  function reparse(){
+    const res = Core.parseDocument(S.pages, S.order);
+    S.rows = res.rows; S.opening = res.opening; S.closing = res.closing; S.orientation = res.orientation; S.refYear = res.refYear;
+    S.selRow = null;
+    renderAll();
+  }
+
+  $('#file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    await openFile(f); e.target.value = '';
+  });
+  $('#uploadLbl').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); $('#file').click(); } });
+  async function openFile(f){
+    if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)){ setMeta('That file is not a PDF. Choose the statement PDF your bank sent.', true); return; }
+    const buf = new Uint8Array(await f.arrayBuffer());
+    await loadPdf(buf, f.name, false);
+  }
+  $('#sampleBtn').addEventListener('click', () => loadPdf(Core.makeSamplePdf(), 'Karoo Mutual Bank - Sep 2026.pdf', true));
+  $('#pwForm').addEventListener('submit', e => { e.preventDefault(); if (S.data) loadPdf(S.data, S.fileName, S.isSample, $('#pwInput').value); });
+
+  let dragDepth = 0;
+  addEventListener('dragenter', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')){ dragDepth++; document.body.classList.add('dropping'); } });
+  addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dropping'); });
+  addEventListener('dragover', e => e.preventDefault());
+  addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove('dropping'); const f = e.dataTransfer?.files?.[0]; if (f) openFile(f); });
+
+  /* ---------- rendering ---------- */
+  function renderAll(){
+    renderSteps(); renderStats(); renderThumbs(); renderStage(); renderPicked(); renderPageFoot();
+    renderTable(); renderRaw(); renderExport(); renderTabs();
+  }
+  function renderSteps(){
+    $('#st1').classList.toggle('done', S.pages.length > 0);
+    $('#st2').classList.toggle('done', S.rows.length > 0);
+  }
+  function liveRows(){ return S.rows.filter(r => r.include); }
+  function renderStats(){
+    const el = $('#stats');
+    if (!S.pages.length){ el.innerHTML = ''; return; }
+    const rows = liveRows();
+    let inn = 0, out = 0; for (const r of rows){ if (r.amount > 0) inn += r.amount; else out += r.amount; if (r.fee) out += r.fee; }
+    const withBal = rows.filter(r => r.check !== 'na');
+    const ok = withBal.filter(r => r.check === 'ok').length;
+    const dated = rows.filter(r => r.m && r.y).map(r => r.y * 400 + r.m * 32 + r.d);
+    let period = '—';
+    if (dated.length){
+      const lo = Math.min(...dated), hi = Math.max(...dated);
+      const f = n => `${pad(n % 32)} ${MON[Math.floor((n % 400) / 32) - 1]} ${Math.floor(n / 400)}`;
+      period = lo === hi ? f(lo) : `${f(lo)} – ${f(hi)}`;
+    }
+    setMeta(`${S.pages.length} page${S.pages.length > 1 ? 's' : ''}`);
+    el.innerHTML = `
+      <div class="stat"><span>Transactions</span><b>${rows.length}</b></div>
+      <div class="stat"><span>Money in</span><b class="pos">${money(inn)}</b></div>
+      <div class="stat"><span>Money out</span><b class="neg">${money(out)}</b></div>
+      <div class="stat"><span>Balances add up</span><b>${withBal.length ? `${ok} of ${withBal.length}` : '—'}</b></div>
+      <div class="stat"><span>Period</span><b>${period}</b></div>`;
+  }
+  function renderThumbs(){
+    const el = $('#thumbs');
+    el.hidden = S.pages.length < 2;
+    el.innerHTML = S.pages.map(p => `<button class="thumb" type="button" data-page="${p.num}" aria-current="${p.num === S.selPage}" aria-label="Page ${p.num}"><img src="${p.url}" alt=""><span>${p.num}</span></button>`).join('');
+  }
+  $('#thumbs').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (!b) return; S.selPage = +b.dataset.page; renderThumbs(); renderStage(); renderPageFoot(); });
+
+  const pct = (v, of) => (v / of * 100).toFixed(3) + '%';
+  function renderStage(){
+    const st = $('#stage');
+    const p = S.pages.find(x => x.num === S.selPage);
+    if (!p){ st.innerHTML = `<div class="empty-stage">${S.loading ? 'Reading the statement…' : 'Upload a statement to see its pages here.'}</div>`; return; }
+    const boxes = [];
+    const rowsHere = S.rows.filter(r => r.page === p.num && r.box);
+    const rowIds = new Set(rowsHere.map(r => r.id));
+    for (const ln of p.lines || []){
+      if (ln.kind === 'tx' || ln.kind === 'cont'){
+        if (!rowIds.has(ln.rowId)) continue;
+        boxes.push(`<div class="box ${ln.kind}${ln.rowId === S.selRow ? ' sel' : ''}" data-row="${ln.rowId}" style="left:${pct(ln.x - 2, p.w)};top:${pct(ln.y - ln.h * 0.9, p.h)};width:${pct(ln.right - ln.x + 4, p.w)};height:${pct(ln.h * 1.25, p.h)}" title="Read as a transaction"></div>`);
+      } else if (S.showAll){
+        boxes.push(`<div class="box ${ln.kind}" data-line="${ln.id}" style="left:${pct(ln.x - 2, p.w)};top:${pct(ln.y - ln.h * 0.9, p.h)};width:${pct(ln.right - ln.x + 4, p.w)};height:${pct(ln.h * 1.25, p.h)}"></div>`);
+      }
+    }
+    const scanNote = p.scanned && !p.byClaude ? `<div class="scan-note"><b>No text found on this page.</b> It looks like a scanned image. ${sample ? 'Use “Ask Claude to read this page” below.' : 'Text can only be read from PDFs your bank generated, not from scans.'}</div>` : '';
+    st.innerHTML = `<div class="sheet"><img src="${p.url}" alt="Page ${p.num} of the statement" width="${Math.round(p.w)}" height="${Math.round(p.h)}"><div class="overlay">${boxes.join('')}</div></div>${scanNote}`;
+  }
+  $('#stage').addEventListener('click', e => {
+    const b = e.target.closest('[data-row]'); if (!b) return;
+    selectRow(b.dataset.row, { scrollTable: true, fromPage: true });
+  });
+  $('#showAll').addEventListener('change', e => { S.showAll = e.target.checked; renderStage(); });
+
+  function renderPicked(){
+    const el = $('#picked');
+    const r = S.rows.find(x => x.id === S.selRow);
+    if (!r){ el.hidden = true; return; }
+    const p = S.pages.find(x => x.num === r.page);
+    const lines = (p?.lines || []).filter(l => r.lineIds.includes(l.id)).map(l => l.text).join('\n');
+    el.hidden = false;
+    el.innerHTML = `
+      <div class="label">Selected line, page ${r.page}</div>
+      <div class="row1"><span class="d">${esc(fmtDate(r)) || 'No date'}</span><span>${esc(r.desc) || '<i>No description</i>'}</span>
+        <span class="amt ${r.amount < 0 ? 'neg' : 'pos'}">${money(r.amount)}</span>
+        ${r.balance != null ? `<span class="msg">balance <span class="mono">${money(r.balance, false)}</span></span>` : ''}
+        ${checkChip(r)}</div>
+      ${lines ? `<div class="raw mono">${esc(lines)}</div>` : `<div class="msg">Read by Claude from the page image.</div>`}
+      <div><button class="btn small" type="button" id="editInTable">Edit in table</button></div>`;
+    $('#editInTable').onclick = () => { setView('read'); scrollRowIntoView(r.id, true); };
+  }
+
+  function renderPageFoot(){
+    const el = $('#pageFoot');
+    const p = S.pages.find(x => x.num === S.selPage);
+    if (!p){ el.hidden = true; return; }
+    el.hidden = false;
+    const n = S.rows.filter(r => r.page === p.num).length;
+    const lines = (p.lines || []).length;
+    const busy = S.claudeBusy === p.num;
+    el.innerHTML = `<span>Page ${p.num} of ${S.pages.length} · ${n} transaction${n === 1 ? '' : 's'} · ${lines} line${lines === 1 ? '' : 's'} of text${p.byClaude ? ' · <span class="tag claude">Read by Claude</span>' : ''}</span>
+      ${sample ? `<span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${busy ? `<span class="msg">Claude is reading page ${p.num}…</span><button class="btn small" type="button" id="stopClaude">Stop</button>` :
+        `<button class="btn small ${p.scanned && !p.byClaude ? 'marker' : ''}" type="button" id="askClaude" ${S.claudeBusy ? 'disabled' : ''}>Ask Claude to read this page</button>`}</span>` : ''}
+      <span class="msg" id="claudeMsg" style="flex-basis:100%"></span>`;
+    $('#askClaude') && ($('#askClaude').onclick = () => readWithClaude(p.num));
+    $('#stopClaude') && ($('#stopClaude').onclick = () => claudeCtl?.abort());
+  }
+
+  /* ---------- Claude read for scanned or tricky pages ---------- */
+  let claudeCtl = null;
+  async function readWithClaude(num){
+    const p = S.pages.find(x => x.num === num); if (!p || !sample) return;
+    S.claudeBusy = num; claudeCtl = new AbortController(); renderPageFoot();
+    const prompt = `The image is page ${num} of a bank statement. Extract every transaction row on it, in the order printed.
+Reply with only a JSON array, one object per transaction:
+{"date":"YYYY-MM-DD","description":"text as printed","amount":number,"balance":number or null}
+Rules: amount is negative for money out (debits, payments, purchases, fees, withdrawals) and positive for money in (credits, deposits, salary, interest). Use plain numbers with a dot for decimals and no currency symbols or thousands separators. If the year is not printed, use ${S.refYear}. Leave out opening balance, closing balance, headings and totals. If there are no transactions, reply [].`;
+    let note = '';
+    try {
+      const arr = await sample.json(prompt, { images: [p.blob], signal: claudeCtl.signal });
+      if (!Array.isArray(arr)) throw { code: 'invalid_json' };
+      const fresh = arr.filter(o => o && typeof o === 'object').map(o => {
+        const d = Core.parseDateStart(String(o.date || ''), 'dmy') || {};
+        const amt = Number(o.amount), bal = o.balance == null || o.balance === '' ? null : Number(o.balance);
+        return { id: Core.uid('C'), page: num, lineIds: [], box: null, y: d.y ?? S.refYear, m: d.m ?? null, d: d.d ?? null, dateText: String(o.date || ''),
+          desc: String(o.description || '').slice(0, 300), amount: isFinite(amt) ? amt : 0, signKnown: true, signGuess: false, hint: null,
+          balance: isFinite(bal) ? bal : null, fee: null, include: true, source: 'claude', check: 'na' };
+      });
+      for (const ln of p.lines || []){ if (ln.kind === 'tx' || ln.kind === 'cont'){ ln.kind = 'other'; ln.rowId = null; } }
+      const firstIdx = S.rows.findIndex(r => r.page >= num);
+      const kept = S.rows.filter(r => r.page !== num);
+      let at = kept.findIndex(r => r.page > num); if (at < 0) at = kept.length;
+      kept.splice(at, 0, ...fresh);
+      S.rows = kept; p.byClaude = true;
+      note = `Claude read ${fresh.length} transaction${fresh.length === 1 ? '' : 's'} from page ${num}. Check them against the image.`;
+      void firstIdx;
+    } catch (e){
+      const c = e && e.code;
+      note = c === 'cancelled' ? '' : c === 'not_granted' || c === 'sampling_disabled' ? 'Claude is not allowed to read pages in this view.'
+        : c === 'rate_limited' ? 'Too many requests right now. Try again in a minute.'
+        : c === 'invalid_json' ? 'Claude’s answer could not be turned into rows. Try again.'
+        : c === 'images_unavailable' || c === 'image_rejected' ? 'This view cannot send the page image to Claude.'
+        : 'Claude could not read the page this time. Try again.';
+      if (c === 'not_granted' || c === 'sampling_disabled' || c === 'images_unavailable') sample = null;
+    }
+    S.claudeBusy = null; claudeCtl = null;
+    Core.computeChecks(S.rows, S.orientation, S.opening);
+    renderAll();
+    if (note && $('#claudeMsg')) $('#claudeMsg').textContent = note;
+  }
+
+  /* ---------- table ---------- */
+  function checkChip(r){
+    if (r.signGuess) return `<span class="chip off" title="Could not tell if this is money in or out. Use ± to switch.">in or out?</span>`;
+    if (r.check === 'ok') return `<span class="chip ok" title="Previous balance plus this amount equals this balance">adds up</span>`;
+    if (r.check === 'off') return `<span class="chip off" title="Previous balance plus this amount does not equal this balance">check</span>`;
+    return `<span class="chip na">—</span>`;
+  }
+  function renderTable(){
+    const wrap = $('#tableWrap');
+    if (!S.pages.length){ wrap.innerHTML = `<div class="empty-table">Transactions will appear here once a statement is read.</div>`; $('#tableNote').textContent = ''; return; }
+    if (!S.rows.length){ wrap.innerHTML = `<div class="empty-table">No transactions were found. Open <b>All text</b> to see what was read, and use <b>Add as row</b> on the lines you need.</div>`; }
+    else {
+      const active = document.activeElement && document.activeElement.id;
+      let html = `<table class="tx"><thead><tr><th class="c-inc" title="Include in export">✓</th><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Check</th><th><span class="sr" hidden>Actions</span></th></tr></thead><tbody>`;
+      let pg = null;
+      for (const r of S.rows){
+        if (r.page !== pg){
+          pg = r.page; const n = S.rows.filter(x => x.page === pg).length;
+          const by = S.pages.find(x => x.num === pg)?.byClaude;
+          html += `<tr class="pg"><td colspan="7">Page ${pg} · ${n} row${n === 1 ? '' : 's'}${by ? ' · read by Claude' : ''}</td></tr>`;
+        }
+        html += `<tr class="r${r.id === S.selRow ? ' sel' : ''}${r.include ? '' : ' off'}" data-id="${r.id}">
+          <td class="c-inc"><input type="checkbox" id="inc-${r.id}" ${r.include ? 'checked' : ''} aria-label="Include this row"></td>
+          <td class="c-date"><input class="cell" id="date-${r.id}" value="${esc(fmtDate(r))}" aria-label="Date"></td>
+          <td class="c-desc"><input class="cell" id="desc-${r.id}" value="${esc(r.desc)}" aria-label="Description"></td>
+          <td class="c-amt"><input class="cell num ${r.amount < 0 ? 'neg' : 'pos'}" id="amt-${r.id}" value="${money(r.amount)}" aria-label="Amount"></td>
+          <td class="c-bal"><input class="cell num" id="bal-${r.id}" value="${r.balance == null ? '' : money(r.balance, false)}" aria-label="Balance"></td>
+          <td class="c-chk">${checkChip(r)}</td>
+          <td class="c-act"><button class="ico" type="button" data-act="flip" title="Switch between money in and money out" aria-label="Switch money in or out">±</button><button class="ico" type="button" data-act="del" title="Delete row" aria-label="Delete row">×</button></td></tr>`;
+      }
+      html += `</tbody></table>`;
+      wrap.innerHTML = html;
+      if (active && document.getElementById(active)) document.getElementById(active).focus();
+    }
+    const off = S.rows.filter(r => r.check === 'off').length, guess = S.rows.filter(r => r.signGuess).length;
+    $('#tableNote').textContent = off || guess ? `${off ? `${off} row${off === 1 ? '' : 's'} to check` : ''}${off && guess ? ' · ' : ''}${guess ? `${guess} with unknown in/out` : ''}` : (S.rows.length ? 'Click any value to correct it.' : '');
+    $('#tabRead').textContent = S.rows.length ? `What I read (${liveRows().length})` : 'What I read';
+  }
+
+  function parseLooseAmount(v){
+    const a = Core.parseAmount(v);
+    if (a) return a.sign ? a.sign * a.value : a.value;
+    const n = Number(String(v).replace(/[−–]/g, '-').replace(/[^\d.\-]/g, ''));
+    return String(v).trim() && isFinite(n) ? n : null;
+  }
+  $('#tableWrap').addEventListener('change', e => {
+    const id = e.target.closest('tr')?.dataset.id; const r = S.rows.find(x => x.id === id); if (!r) return;
+    const t = e.target.id.split('-')[0], v = e.target.value;
+    if (t === 'inc') r.include = e.target.checked;
+    if (t === 'desc') r.desc = v.trim();
+    if (t === 'date'){
+      const d = Core.parseDateStart(v.trim(), S.order);
+      if (d){ r.y = d.y ?? r.y ?? S.refYear; r.m = d.m; r.d = d.d; r.dateText = v.trim(); }
+      else if (!v.trim()){ r.m = r.d = null; r.dateText = ''; }
+    }
+    if (t === 'amt'){ const n = parseLooseAmount(v); if (n != null){ r.amount = n; r.signGuess = false; r.signKnown = true; } }
+    if (t === 'bal'){ r.balance = v.trim() ? parseLooseAmount(v) : null; }
+    refreshAfterEdit();
+  });
+  $('#tableWrap').addEventListener('click', e => {
+    const tr = e.target.closest('tr.r'); if (!tr) return;
+    const r = S.rows.find(x => x.id === tr.dataset.id); if (!r) return;
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'flip'){ r.amount = -r.amount; r.signGuess = false; refreshAfterEdit(); return; }
+    if (act === 'del'){
+      const p = S.pages.find(x => x.num === r.page);
+      for (const ln of p?.lines || []) if (ln.rowId === r.id){ ln.kind = 'other'; ln.rowId = null; }
+      S.rows = S.rows.filter(x => x !== r); if (S.selRow === r.id) S.selRow = null;
+      refreshAfterEdit(); return;
+    }
+    if (S.selRow !== r.id) selectRow(r.id, {});
+  });
+  $('#tableWrap').addEventListener('focusin', e => { const id = e.target.closest('tr.r')?.dataset.id; if (id && id !== S.selRow) selectRow(id, {}); });
+  $('#tableWrap').addEventListener('mouseover', e => {
+    const id = e.target.closest('tr.r')?.dataset.id;
+    document.querySelectorAll('.box.hov').forEach(b => b.classList.remove('hov'));
+    if (id) document.querySelectorAll(`.box[data-row="${id}"]`).forEach(b => b.classList.add('hov'));
+  });
+  function refreshAfterEdit(){
+    Core.computeChecks(S.rows, S.orientation, S.opening);
+    renderTable(); renderStats(); renderStage(); renderPicked(); renderPageFoot(); renderRaw(); renderExport();
+  }
+  function selectRow(id, { scrollTable, fromPage }){
+    const r = S.rows.find(x => x.id === id); if (!r) return;
+    S.selRow = id;
+    if (r.page !== S.selPage){ S.selPage = r.page; renderThumbs(); renderPageFoot(); }
+    renderStage(); renderPicked();
+    document.querySelectorAll('tr.r.sel').forEach(t => t.classList.remove('sel'));
+    document.querySelector(`tr.r[data-id="${id}"]`)?.classList.add('sel');
+    if (scrollTable) scrollRowIntoView(id, false);
+    if (!fromPage){
+      const box = document.querySelector(`.box[data-row="${id}"]`), st = $('#stage');
+      if (box && getComputedStyle(st).maxHeight !== 'none'){
+        const bt = box.getBoundingClientRect().top - st.getBoundingClientRect().top + st.scrollTop;
+        st.scrollTo({ top: Math.max(0, bt - st.clientHeight / 2), behavior: 'smooth' });
+      }
+    }
+  }
+  function scrollRowIntoView(id, focus){
+    const tr = document.querySelector(`tr.r[data-id="${id}"]`); if (!tr) return;
+    const w = $('#tableWrap');
+    if (getComputedStyle(w).maxHeight !== 'none'){
+      const t = tr.getBoundingClientRect().top - w.getBoundingClientRect().top + w.scrollTop;
+      w.scrollTo({ top: Math.max(0, t - w.clientHeight / 2), behavior: 'smooth' });
+    } else tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (focus) tr.querySelector('.c-desc input')?.focus({ preventScroll: true });
+  }
+  $('#addRow').addEventListener('click', () => {
+    if (!S.pages.length) return;
+    const ref = S.rows.find(x => x.id === S.selRow);
+    const r = { id: Core.uid('M'), page: ref ? ref.page : S.selPage, lineIds: [], box: null, y: ref?.y ?? S.refYear, m: ref?.m ?? null, d: ref?.d ?? null,
+      dateText: ref?.dateText ?? '', desc: '', amount: 0, signKnown: true, signGuess: false, hint: null, balance: null, fee: null, include: true, source: 'manual', check: 'na' };
+    let at = ref ? S.rows.indexOf(ref) + 1 : S.rows.findIndex(x => x.page > r.page);
+    if (at < 0) at = S.rows.length;
+    S.rows.splice(at, 0, r); S.selRow = r.id;
+    refreshAfterEdit(); scrollRowIntoView(r.id, true);
+  });
+  $('#dateOrder').addEventListener('change', e => { S.order = e.target.value; if (S.pages.length) reparse(); });
+
+  /* ---------- all text ---------- */
+  const KIND = { tx: 'Transaction', cont: 'Description', header: 'Column titles', balance: 'Balance line', other: 'Not used' };
+  function renderRaw(){
+    const el = $('#rawList');
+    if (!S.pages.length){ el.innerHTML = `<div class="empty-table">Every line of text found in the PDF will be listed here.</div>`; return; }
+    el.innerHTML = S.pages.map(p => `<div class="raw-pg">Page ${p.num}${p.scanned ? ' · no text layer (scanned image)' : ''}</div>` +
+      (p.lines || []).map(l => `<div class="raw-line"><span class="kind ${l.kind}">${KIND[l.kind]}</span><span class="mono">${esc(l.text)}</span>
+        ${l.kind === 'other' && /\d[.,]\d{2}\b/.test(l.text) ? `<button class="btn small" type="button" data-addline="${l.id}" data-page="${p.num}">Add as row</button>` : l.rowId ? `<button class="btn small" type="button" data-show="${l.rowId}">Show</button>` : '<span></span>'}</div>`).join('')
+    ).join('');
+  }
+  $('#rawList').addEventListener('click', e => {
+    const show = e.target.closest('[data-show]');
+    if (show){ S.readTab = 'tx'; renderReadTab(); selectRow(show.dataset.show, { scrollTable: true }); return; }
+    const add = e.target.closest('[data-addline]'); if (!add) return;
+    const p = S.pages.find(x => x.num === +add.dataset.page); const ln = p.lines.find(l => l.id === add.dataset.addline);
+    const date = Core.parseDateStart(ln.segs[0].text, S.order);
+    const amts = [], texts = [];
+    ln.segs.forEach((s, i) => { const a = (i === 0 && date) ? null : Core.parseAmount(s.text); if (a) amts.push(a); else texts.push(i === 0 && date ? s.text.slice(date.text.length).trim() : s.text); });
+    const n = amts.length;
+    const amtA = n >= 2 ? amts[n - 2] : amts[0], balA = n >= 2 ? amts[n - 1] : null;
+    const r = { id: Core.uid('M'), page: p.num, lineIds: [ln.id], box: { x: ln.x, y: ln.y - ln.h, w: ln.right - ln.x, h: ln.h * 1.2 },
+      y: date ? (date.y ?? S.refYear) : S.refYear, m: date?.m ?? null, d: date?.d ?? null, dateText: date?.text ?? '',
+      desc: texts.filter(Boolean).join(' '), amount: amtA ? (amtA.sign ? amtA.sign * amtA.value : -amtA.value) : 0, signKnown: !!amtA?.sign, signGuess: !amtA?.sign, hint: null,
+      balance: balA ? (balA.sign === -1 ? -balA.value : balA.value) : null, fee: null, include: true, source: 'manual', check: 'na' };
+    ln.kind = 'tx'; ln.rowId = r.id;
+    const allIds = p.lines.map(l => l.id);
+    const pos = allIds.indexOf(ln.id);
+    let at = S.rows.findIndex(x => x.page > p.num || (x.page === p.num && x.lineIds[0] && allIds.indexOf(x.lineIds[0]) > pos));
+    if (at < 0) at = S.rows.length;
+    S.rows.splice(at, 0, r); S.selRow = r.id; S.readTab = 'tx';
+    renderReadTab(); refreshAfterEdit(); scrollRowIntoView(r.id, true);
+  });
+  function renderReadTab(){
+    $('#segTx').setAttribute('aria-pressed', S.readTab === 'tx'); $('#segRaw').setAttribute('aria-pressed', S.readTab === 'raw');
+    $('#txView').hidden = S.readTab !== 'tx'; $('#rawView').hidden = S.readTab !== 'raw';
+  }
+  $('#segTx').onclick = () => { S.readTab = 'tx'; renderReadTab(); };
+  $('#segRaw').onclick = () => { S.readTab = 'raw'; renderReadTab(); };
+
+  /* ---------- mobile tabs ---------- */
+  function setView(v){ S.view = v; renderTabs(); window.scrollTo({ top: $('.tabs').offsetTop - 8, behavior: 'smooth' }); }
+  function renderTabs(){
+    app.dataset.view = S.view;
+    document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === S.view));
+  }
+  document.querySelector('.tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+
+  /* ---------- export ---------- */
+  const O = S.opts;
+  const bindRadio = (name, key) => document.querySelectorAll(`input[name="${name}"]`).forEach(i => { i.checked = O[key] === i.value; i.addEventListener('change', () => { O[key] = i.value; renderExport(); }); });
+  bindRadio('layout', 'layout'); bindRadio('amounts', 'amounts'); bindRadio('dates', 'dates'); bindRadio('format', 'format');
+  const bindCol = (id, key) => { const i = $(id); i.checked = O.cols[key]; i.addEventListener('change', () => { O.cols[key] = i.checked; renderExport(); }); };
+  bindCol('#colDate', 'date'); bindCol('#colDesc', 'desc'); bindCol('#colAmount', 'amount'); bindCol('#colBalance', 'balance'); bindCol('#colFee', 'fee'); bindCol('#colPage', 'page'); bindCol('#colCheck', 'check');
+  const bindOpt = (id, key) => { const i = $(id); i.checked = O[key]; i.addEventListener('change', () => { O[key] = i.checked; renderExport(); }); };
+  bindOpt('#optTotals', 'totals'); bindOpt('#optSummary', 'summary'); bindOpt('#optRaw', 'raw'); bindOpt('#optOldest', 'oldest'); bindOpt('#optSkipped', 'skipUnticked');
+  $('#fname').addEventListener('input', e => { O.filename = e.target.value; });
+
+  function exportRows(){
+    let rows = O.skipUnticked ? liveRows() : S.rows.slice();
+    if (O.oldest){
+      if (S.orientation === 'bwd') rows.reverse();
+      rows = rows.map((r, i) => ({ r, i, k: r.m && r.y ? r.y * 400 + r.m * 32 + r.d : null }))
+        .sort((a, b) => (a.k == null || b.k == null) ? a.i - b.i : (a.k - b.k) || (a.i - b.i)).map(x => x.r);
+    }
+    return rows;
+  }
+  function columns(rows){
+    const c = [];
+    if (O.cols.date) c.push({ key: 'date', head: 'Date', wch: 12 });
+    if (O.cols.desc) c.push({ key: 'desc', head: 'Description', wch: 46 });
+    if (O.cols.amount){
+      if (O.amounts === 'signed') c.push({ key: 'amount', head: 'Amount', wch: 14, num: true, sum: true });
+      else { c.push({ key: 'in', head: 'Money in', wch: 14, num: true, sum: true }); c.push({ key: 'out', head: 'Money out', wch: 14, num: true, sum: true }); }
+    }
+    if (O.cols.fee && rows.some(r => r.fee)) c.push({ key: 'fee', head: 'Fees', wch: 12, num: true, sum: true });
+    if (O.cols.balance) c.push({ key: 'balance', head: 'Balance', wch: 14, num: true });
+    if (O.cols.page) c.push({ key: 'page', head: 'PDF page', wch: 9 });
+    if (O.cols.check) c.push({ key: 'check', head: 'Balance check', wch: 14 });
+    return c;
+  }
+  const NUMF = '#,##0.00;-#,##0.00';
+  const serial = r => (Date.UTC(r.y, r.m - 1, r.d) - Date.UTC(1899, 11, 30)) / 86400000;
+  function cell(r, col){
+    switch (col.key){
+      case 'date':
+        if (!r.m || !r.y) return r.dateText ? { t: 's', v: r.dateText } : null;
+        if (O.dates === 'text') return { t: 's', v: r.dateText || fmtDate(r) };
+        return { t: 'n', v: serial(r), z: O.dates === 'iso' ? 'yyyy-mm-dd' : 'dd/mm/yyyy' };
+      case 'desc': return { t: 's', v: r.desc || '' };
+      case 'amount': return { t: 'n', v: r.amount, z: NUMF };
+      case 'in': return r.amount > 0 ? { t: 'n', v: r.amount, z: NUMF } : null;
+      case 'out': return r.amount < 0 ? { t: 'n', v: -r.amount, z: NUMF } : null;
+      case 'fee': return r.fee ? { t: 'n', v: O.amounts === 'signed' ? r.fee : -r.fee, z: NUMF } : null;
+      case 'balance': return r.balance == null ? null : { t: 'n', v: r.balance, z: NUMF };
+      case 'page': return { t: 'n', v: r.page };
+      case 'check': return { t: 's', v: r.check === 'ok' ? 'OK' : r.check === 'off' ? 'Does not add up' : '' };
+    }
+    return null;
+  }
+  const monthKey = r => r.m && r.y ? `${r.y}-${pad(r.m)}` : 'No date';
+  const monthName = k => k === 'No date' ? k : `${MON[+k.slice(5) - 1]} ${k.slice(0, 4)}`;
+  function plan(){
+    const rows = exportRows(); const cols = columns(rows);
+    const fmt = O.format;
+    let groups;
+    if (fmt === 'csv' || O.layout === 'single') groups = [{ name: 'Transactions', rows }];
+    else if (O.layout === 'month'){
+      const m = new Map(); for (const r of rows){ const k = monthKey(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }
+      groups = [...m.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([k, rs]) => ({ name: monthName(k), rows: rs }));
+    } else {
+      const m = new Map(); for (const r of rows){ if (!m.has(r.page)) m.set(r.page, []); m.get(r.page).push(r); }
+      groups = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, rs]) => ({ name: `Page ${k}`, rows: rs }));
+    }
+    const sheets = groups.map(g => ({ kind: 'tx', name: g.name, rows: g.rows, cols }));
+    if (fmt === 'xlsx' && O.summary && rows.length) sheets.push({ kind: 'summary', name: 'Summary', rows });
+    if (fmt === 'xlsx' && O.raw) sheets.push({ kind: 'raw', name: 'Text from PDF' });
+    return { rows, cols, sheets };
+  }
+  function txAoa(sh){
+    const aoa = [sh.cols.map(c => ({ t: 's', v: c.head }))];
+    for (const r of sh.rows) aoa.push(sh.cols.map(c => cell(r, c)));
+    if (O.totals && sh.rows.length && sh.cols.some(c => c.sum)){
+      const n = sh.rows.length;
+      const row = sh.cols.map((c, ci) => {
+        if (!c.sum) return null;
+        const L = XLSX.utils.encode_col(ci);
+        let v = 0; for (let i = 1; i <= n; i++){ const x = aoa[i][ci]; if (x && typeof x.v === 'number') v += x.v; }
+        return { t: 'n', f: `SUM(${L}2:${L}${n + 1})`, v: Math.round(v * 100) / 100, z: NUMF, total: true };
+      });
+      const labelAt = sh.cols.findIndex(c => c.key === 'desc');
+      const li = labelAt >= 0 ? labelAt : row.findIndex(x => !x);
+      if (li >= 0 && !row[li]) row[li] = { t: 's', v: 'Total' };
+      aoa.push(row);
+    }
+    return aoa;
+  }
+  function summaryAoa(rows){
+    const m = new Map();
+    for (const r of rows){ const k = monthKey(r); if (!m.has(k)) m.set(k, { n: 0, inn: 0, out: 0 }); const s = m.get(k); s.n++; if (r.amount > 0) s.inn += r.amount; else s.out += -r.amount; if (r.fee) s.out += -r.fee; }
+    const aoa = [
+      [{ t: 's', v: 'Statement' }, { t: 's', v: S.fileName }],
+      [{ t: 's', v: 'Opening balance' }, S.opening != null ? { t: 'n', v: S.opening, z: NUMF } : { t: 's', v: 'Not found' }],
+      [{ t: 's', v: 'Closing balance' }, S.closing != null ? { t: 'n', v: S.closing, z: NUMF } : { t: 's', v: 'Not found' }],
+      [],
+      ['Month', 'Transactions', 'Money in', 'Money out', 'Net'].map(v => ({ t: 's', v }))
+    ];
+    const start = aoa.length + 1;
+    const keys = [...m.keys()].sort();
+    keys.forEach((k, i) => {
+      const s = m.get(k), R = start + i;
+      aoa.push([{ t: 's', v: monthName(k) }, { t: 'n', v: s.n }, { t: 'n', v: Math.round(s.inn * 100) / 100, z: NUMF }, { t: 'n', v: Math.round(s.out * 100) / 100, z: NUMF }, { t: 'n', f: `C${R}-D${R}`, v: Math.round((s.inn - s.out) * 100) / 100, z: NUMF }]);
+    });
+    const end = start + keys.length - 1;
+    if (keys.length > 1) aoa.push([{ t: 's', v: 'Total' }, ...['B', 'C', 'D', 'E'].map(L => ({ t: 'n', f: `SUM(${L}${start}:${L}${end})`, v: 0, z: L === 'B' ? undefined : NUMF, total: true }))]);
+    return aoa;
+  }
+  function rawAoa(){
+    const aoa = [['PDF page', 'Line', 'Text', 'Read as'].map(v => ({ t: 's', v }))];
+    for (const p of S.pages) (p.lines || []).forEach((l, i) => aoa.push([{ t: 'n', v: p.num }, { t: 'n', v: i + 1 }, { t: 's', v: l.text }, { t: 's', v: KIND[l.kind] }]));
+    return aoa;
+  }
+  function aoaFor(sh){ return sh.kind === 'tx' ? txAoa(sh) : sh.kind === 'summary' ? summaryAoa(sh.rows) : rawAoa(); }
+  function sheetFromAoa(aoa, widths){
+    const ws = {}; let maxC = 0;
+    aoa.forEach((row, R) => (row || []).forEach((c, C) => {
+      if (!c) return; maxC = Math.max(maxC, C);
+      const o = { t: c.t, v: c.v }; if (c.z) o.z = c.z; if (c.f) o.f = c.f;
+      ws[XLSX.utils.encode_cell({ r: R, c: C })] = o;
+    }));
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, aoa.length - 1), c: maxC } });
+    if (widths) ws['!cols'] = widths.map(w => ({ wch: w }));
+    return ws;
+  }
+  function safeName(n, used){
+    let b = n.replace(/[\[\]:*?/\\]/g, ' ').slice(0, 31) || 'Sheet', x = b, i = 2;
+    while (used.has(x.toLowerCase())){ x = b.slice(0, 28) + ' ' + i++; }
+    used.add(x.toLowerCase()); return x;
+  }
+  function displayCell(c){
+    if (!c) return '';
+    if (c.t === 'n' && c.z === NUMF) return nf.format(c.v).replace(/^-/, '−');
+    if (c.t === 'n' && c.z && /yyyy/.test(c.z)){
+      const d = new Date(Date.UTC(1899, 11, 30) + c.v * 86400000);
+      const Y = d.getUTCFullYear(), M = pad(d.getUTCMonth() + 1), D = pad(d.getUTCDate());
+      return c.z === 'yyyy-mm-dd' ? `${Y}-${M}-${D}` : `${D}/${M}/${Y}`;
+    }
+    return String(c.v);
+  }
+
+  function renderExport(){
+    $('#fname').value = O.filename;
+    const csv = O.format === 'csv';
+    document.querySelectorAll('input[name="layout"]').forEach(i => i.closest('.choice').classList.toggle('disabled', csv && i.value !== 'single'));
+    ['#optSummary', '#optRaw'].forEach(id => $(id).closest('label').style.opacity = csv ? .45 : 1);
+    const pv = $('#preview');
+    const has = S.rows.length > 0;
+    $('#exportBtn').disabled = !has || !downloads;
+    $('#copyBtn').disabled = !has;
+    $('#exportBtn').textContent = csv ? 'Download CSV file' : 'Download Excel file';
+    if (has && !downloads) $('#exportMsg').textContent = 'Saving files is not available in this view. Use Copy, then paste into Excel.';
+    else if ($('#exportMsg').dataset.sticky !== '1') $('#exportMsg').textContent = '';
+    $('#st3').classList.remove('done');
+    if (!has){ pv.innerHTML = `<div class="empty-table">A preview of the spreadsheet appears here once transactions are read.</div>`; return; }
+    const pl = plan();
+    const first = pl.sheets[0];
+    if (!pl.cols.length){ pv.innerHTML = `<div class="empty-table">Tick at least one column.</div>`; return; }
+    const aoa = aoaFor(first);
+    const body = aoa.slice(1);
+    const hasTot = O.totals && first.rows.length && first.cols.some(c => c.sum);
+    const dataRows = hasTot ? body.slice(0, -1) : body;
+    const shown = dataRows.slice(0, 6);
+    const L = i => XLSX.utils.encode_col(i);
+    let t = `<table><thead><tr><th class="rn"></th>${first.cols.map((c, i) => `<th>${L(i)}</th>`).join('')}</tr></thead><tbody>`;
+    t += `<tr><td class="rn">1</td>${aoa[0].map(c => `<th>${esc(c.v)}</th>`).join('')}</tr>`;
+    shown.forEach((row, i) => { t += `<tr><td class="rn">${i + 2}</td>${first.cols.map((c, ci) => `<td class="${c.num || (row[ci] && row[ci].t === 'n') ? 'n' : ''}">${esc(displayCell(row[ci]))}</td>`).join('')}</tr>`; });
+    if (dataRows.length > shown.length) t += `<tr class="more"><td class="rn">⋮</td><td colspan="${first.cols.length}">${dataRows.length - shown.length} more rows</td></tr>`;
+    if (hasTot){ const tr = body[body.length - 1]; t += `<tr class="tot"><td class="rn">${dataRows.length + 2}</td>${first.cols.map((c, ci) => `<td class="${tr[ci] && tr[ci].t === 'n' ? 'n' : ''}" ${tr[ci]?.f ? `title="=${esc(tr[ci].f)}"` : ''}>${esc(displayCell(tr[ci]))}</td>`).join('')}</tr>`; }
+    t += `</tbody></table>`;
+    pv.innerHTML = `<div class="sheettabs">${pl.sheets.map((s, i) => `<span class="${i === 0 ? 'first' : ''}">${esc(s.name)}</span>`).join('')}</div><div class="xl">${t}</div>`;
+  }
+
+  function filename(ext){
+    const n = (O.filename || 'bank-statement').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'bank-statement';
+    return n.replace(/\.(xlsx|csv)$/i, '') + '.' + ext;
+  }
+  $('#exportBtn').addEventListener('click', async () => {
+    const msg = $('#exportMsg'); msg.dataset.sticky = '1';
+    try {
+      const pl = plan();
+      let data, name;
+      if (O.format === 'csv'){
+        const ws = sheetFromAoa(aoaFor(pl.sheets[0]));
+        data = '﻿' + XLSX.utils.sheet_to_csv(ws); name = filename('csv');
+      } else {
+        const wb = XLSX.utils.book_new(); const used = new Set();
+        for (const sh of pl.sheets){
+          const aoa = aoaFor(sh);
+          const widths = sh.kind === 'tx' ? sh.cols.map(c => c.wch) : sh.kind === 'summary' ? [18, 14, 14, 14, 14] : [9, 6, 90, 14];
+          const ws = sheetFromAoa(aoa, widths);
+          if (sh.kind === 'tx' && sh.rows.length) ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sh.rows.length, c: sh.cols.length - 1 } }) };
+          XLSX.utils.book_append_sheet(wb, ws, safeName(sh.name, used));
+        }
+        data = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })]); name = filename('xlsx');
+      }
+      if (window.claude) msg.textContent = 'Confirm the download to save the file.';
+      await downloads.save({ filename: name, data });
+      msg.textContent = `Saved ${name}.`; $('#st3').classList.add('done');
+    } catch (e){
+      const c = e && e.code;
+      msg.textContent = c === 'declined' ? 'Download cancelled.' : c === 'rate_limited' ? 'A save prompt is already open. Finish that one first.'
+        : c === 'too_large' ? 'The file is too large to save here. Try CSV or fewer extras.' : c ? 'The file could not be saved in this view. Use Copy, then paste into Excel.' : 'Something went wrong building the file. Try again.';
+      if (c && !['declined', 'rate_limited', 'too_large'].includes(c)){ downloads = null; renderExport(); }
+    }
+    setTimeout(() => { msg.dataset.sticky = '0'; }, 6000);
+  });
+  $('#copyBtn').addEventListener('click', async () => {
+    const pl = plan(); const aoa = aoaFor(pl.sheets[0]);
+    const tsv = aoa.map(row => (row || []).map(c => {
+      if (!c) return '';
+      if (c.f && c.total) return '=' + c.f;
+      if (c.t === 'n' && c.z === NUMF) return String(c.v);
+      return displayCell(c).replace(/[\t\n]/g, ' ');
+    }).join('\t')).join('\n');
+    const msg = $('#exportMsg'); msg.dataset.sticky = '1';
+    try { await navigator.clipboard.writeText(tsv); msg.textContent = 'Copied. Click cell A1 in Excel and paste.'; $('#copyBox').hidden = true; }
+    catch { const b = $('#copyBox'); b.hidden = false; b.value = tsv; b.focus(); b.select(); msg.textContent = 'Copy the selected text, then paste it into Excel.'; }
+    setTimeout(() => { msg.dataset.sticky = '0'; }, 6000);
+  });
+
+  renderAll();
+  renderReadTab();
+  // open in a working state with the sample statement
+  loadPdf(Core.makeSamplePdf(), 'Karoo Mutual Bank - Sep 2026.pdf', true);
+})();
+</script>
+
+</body>
+</html>
